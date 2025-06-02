@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { supabase } from './utils/supabaseClient';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -39,18 +40,20 @@ function App() {
   }
 
   return (
-    <AuthProvider>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
-        <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
-        <Route path="/messaging" element={<ProtectedRoute><Messaging /></ProtectedRoute>} />
-        <Route path="/voice-bot" element={<ProtectedRoute><VoiceBot /></ProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/\" replace />} />
-      </Routes>
-    </AuthProvider>
+    <GoogleOAuthProvider clientId="478913790629-sf7ik8vpt2aqs56dm2roant8g3btdgeo.apps.googleusercontent.com">
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+          <Route path="/messaging" element={<ProtectedRoute><Messaging /></ProtectedRoute>} />
+          <Route path="/voice-bot" element={<ProtectedRoute><VoiceBot /></ProtectedRoute>} />
+          <Route path="*" element={<Navigate to="/\" replace />} />
+        </Routes>
+      </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }
 

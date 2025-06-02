@@ -3,8 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, 
   Drawer, 
-  AppBar, 
-  Toolbar, 
   List, 
   Typography, 
   Divider, 
@@ -27,7 +25,7 @@ import {
   RecordVoiceOver as VoiceIcon,
   People as PeopleIcon,
   Logout as LogoutIcon,
-  AccountCircle
+  Scale as ScaleIcon
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 
@@ -44,22 +42,12 @@ export default function Layout({ children }: LayoutProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
-  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
-
   const handleSignOut = async () => {
-    handleMenuClose();
     await signOut();
   };
 
@@ -80,9 +68,17 @@ export default function Layout({ children }: LayoutProps) {
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography variant="h5" component="div" sx={{ fontWeight: 600, color: theme.palette.primary.main }}>
-          LawFirm CRM
+      <Box sx={{ 
+        p: 2, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        background: `linear-gradient(45deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+        color: 'white'
+      }}>
+        <ScaleIcon sx={{ fontSize: 28, mr: 1 }} />
+        <Typography variant="h5" component="div" sx={{ fontWeight: 600 }}>
+          Legal CRM
         </Typography>
       </Box>
       <Divider />
@@ -166,54 +162,27 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh' }}>
-      <AppBar
-        position="fixed"
-        sx={{
-          width: { md: `calc(100% - ${drawerWidth}px)` },
-          ml: { md: `${drawerWidth}px` },
-          boxShadow: 'none',
-          borderBottom: `1px solid ${theme.palette.divider}`,
-          backgroundColor: theme.palette.background.paper,
-        }}
-      >
-        <Toolbar>
-          <IconButton
-            color="inherit"
-            aria-label="open drawer"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { md: 'none' }, color: theme.palette.text.primary }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Box sx={{ flexGrow: 1 }}></Box>
-          <IconButton
-            size="large"
-            edge="end"
-            aria-label="account of current user"
-            aria-haspopup="true"
-            onClick={handleMenuOpen}
-            color="inherit"
-            sx={{ color: theme.palette.text.primary }}
-          >
-            <AccountCircle />
-          </IconButton>
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-          >
-            <MenuItem onClick={handleSignOut}>
-              <ListItemIcon>
-                <LogoutIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText>Sign out</ListItemText>
-            </MenuItem>
-          </Menu>
-        </Toolbar>
-      </AppBar>
+      {isMobile && (
+        <IconButton
+          color="inherit"
+          aria-label="open drawer"
+          edge="start"
+          onClick={handleDrawerToggle}
+          sx={{ 
+            position: 'fixed',
+            left: 16,
+            top: 16,
+            zIndex: 1200,
+            bgcolor: 'background.paper',
+            boxShadow: 1,
+            '&:hover': {
+              bgcolor: 'background.paper',
+            }
+          }}
+        >
+          <MenuIcon />
+        </IconButton>
+      )}
       <Box
         component="nav"
         sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}
@@ -223,7 +192,7 @@ export default function Layout({ children }: LayoutProps) {
           open={mobileOpen}
           onClose={handleDrawerToggle}
           ModalProps={{
-            keepMounted: true, // Better open performance on mobile.
+            keepMounted: true,
           }}
           sx={{
             display: { xs: 'block', md: 'none' },
@@ -260,13 +229,11 @@ export default function Layout({ children }: LayoutProps) {
           width: { md: `calc(100% - ${drawerWidth}px)` },
           height: '100vh',
           overflow: 'auto',
-          bgcolor: 'background.default'
+          bgcolor: 'background.default',
+          p: { xs: 2, sm: 3 }
         }}
       >
-        <Toolbar />
-        <Box sx={{ p: { xs: 2, sm: 3 } }}>
-          {children}
-        </Box>
+        {children}
       </Box>
     </Box>
   );

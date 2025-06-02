@@ -1,6 +1,6 @@
 export interface Client {
-  id: number;
-  client_number: string;
+  id?: string | number;
+  client_number?: string;
   first_name: string;
   last_name: string;
   middle_name?: string;
@@ -39,6 +39,53 @@ export interface Client {
   job_title?: string;
   preferred_language?: string;
   communication_preference?: string;
+  record_manager?: string;
+  created_by?: string;
   created_at: string;
+  updated_at?: string;
   is_active: boolean;
+  user_defined_fields?: Record<string, any>;
+  client_documents?: Record<string, string>;
+  client_notes?: Record<string, any>;
+  client_tasks?: Record<string, any>;
+  client_billing?: Record<string, any>;
+  client_preferences?: Record<string, any>;
+}
+
+export interface CustomField {
+  name: string;
+  value: any;
+}
+
+export interface ClientNote {
+  id: string;
+  content: string;
+  created_at: string;
+  created_by: string;
+  category?: string;
+}
+
+export interface ClientTask {
+  id: string;
+  title: string;
+  description?: string;
+  due_date?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  assigned_to?: string;
+  priority: 'low' | 'medium' | 'high';
+}
+
+export interface ClientBilling {
+  id: string;
+  amount: number;
+  description: string;
+  date: string;
+  status: 'pending' | 'paid' | 'overdue';
+  payment_method?: string;
+}
+
+export interface ClientPreference {
+  key: string;
+  value: any;
+  category: string;
 }

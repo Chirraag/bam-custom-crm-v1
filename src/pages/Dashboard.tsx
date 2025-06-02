@@ -24,10 +24,105 @@ import {
   ArrowForward as ArrowForwardIcon
 } from '@mui/icons-material';
 import Layout from '../components/Layout';
+import { api } from '../utils/api';
+
+interface DashboardStats {
+  clients: number;
+  appointments: number;
+  messages: number;
+  revenue: number;
+}
+
+interface Appointment {
+  id: number;
+  title: string;
+  client: string;
+  date: string;
+  type: string;
+}
+
+interface Client {
+  id: number;
+  name: string;
+  email: string;
+  status: string;
+}
 
 const Dashboard = () => {
   const theme = useTheme();
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats>({
+    clients: 0,
+    appointments: 0,
+    messages: 0,
+    revenue: 0
+  });
+  const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([
+    {
+      id: 1,
+      title: "Initial Consultation",
+      client: "John Smith",
+      date: "Today, 2:00 PM",
+      type: "Consultation"
+    },
+    {
+      id: 2,
+      title: "Case Review",
+      client: "Sarah Wilson",
+      date: "Tomorrow, 10:00 AM",
+      type: "Review"
+    },
+    {
+      id: 3,
+      title: "Document Signing",
+      client: "Michael Brown",
+      date: "Wed, 3:30 PM",
+      type: "Document"
+    }
+  ]);
+  const [recentClients, setRecentClients] = useState<Client[]>([
+    {
+      id: 1,
+      name: "Emma Johnson",
+      email: "emma.j@example.com",
+      status: "Active"
+    },
+    {
+      id: 2,
+      name: "David Lee",
+      email: "david.lee@example.com",
+      status: "Pending"
+    },
+    {
+      id: 3,
+      name: "Sarah Wilson",
+      email: "sarah.w@example.com",
+      status: "Active"
+    }
+  ]);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        // Simulate API call delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        setStats({
+          clients: 45,
+          appointments: 12,
+          messages: 28,
+          revenue: 52000
+        });
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
 
   const StatCard = ({ title, value, icon, color }: { title: string; value: string | number; icon: React.ReactNode; color: string }) => (
     <Card elevation={0} sx={{ height: '100%', borderRadius: 2, border: `1px solid ${theme.palette.divider}` }}>

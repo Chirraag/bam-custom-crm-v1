@@ -7,11 +7,9 @@ from datetime import datetime
 import logging
 
 # Configure root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -24,10 +22,11 @@ app = FastAPI(title="Law Firm CRM API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Frontend dev server
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,  # Allow credentials
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers
 )
 
 # Include routers
@@ -35,10 +34,12 @@ app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 
+
 @app.get("/")
 async def root():
     logger.info("Root endpoint accessed")
     return {"message": "Welcome to the Law Firm CRM API"}
+
 
 @app.get("/api/health")
 async def health_check():
@@ -48,6 +49,7 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": "1.0.0"
     }
+
 
 if __name__ == "__main__":
     import uvicorn

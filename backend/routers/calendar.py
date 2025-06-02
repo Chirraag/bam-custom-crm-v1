@@ -1,139 +1,199 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, date
-from database import get_db, supabase
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+import json
+import os
 
 router = APIRouter()
 
-class AppointmentBase(BaseModel):
-    title: str
-    client_id: int
-    date: date
-    time: str
-    appointment_type: str
-    notes: Optional[str] = None
+# Google Calendar API settings
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+CLIENT_CONFIG = {
+    "web": {
+        "client_id": "478913790629-sf7ik8vpt2aqs56dm2roant8g3btdgeo.apps.googleusercontent.com",
+        "client_secret": "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",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": ["http://localhost:5173/calendar/oauth2callback"]
+    }
+}
 
-class AppointmentCreate(AppointmentBase):
+class EventBase(BaseModel):
+    summary: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    start_datetime: datetime
+    end_datetime: datetime
+    attendees: Optional[List[str]] = None
+    color_id: Optional[str] = None
+    reminders: Optional[dict] = None
+
+class EventCreate(EventBase):
     pass
 
-class AppointmentUpdate(BaseModel):
-    title: Optional[str] = None
-    client_id: Optional[int] = None
-    date: Optional[date] = None
-    time: Optional[str] = None
-    appointment_type: Optional[str] = None
-    notes: Optional[str] = None
+class EventUpdate(EventBase):
+    pass
 
-class Appointment(AppointmentBase):
-    id: int
-    created_at: datetime
+class Event(EventBase):
+    id: str
+    created: datetime
+    updated: datetime
+    creator: dict
+    organizer: dict
+    status: str
 
-    class Config:
-        orm_mode = True
+def get_calendar_service(credentials_dict: dict):
+    credentials = Credentials.from_authorized_user_info(credentials_dict, SCOPES)
+    return build('calendar', 'v3', credentials=credentials)
 
-@router.get("/", response_model=List[Appointment])
-async def get_appointments():
+@router.get("/auth-url")
+async def get_auth_url():
+    flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+    flow.redirect_uri = "http://localhost:5173/calendar/oauth2callback"
+    auth_url, _ = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+    return {"auth_url": auth_url}
+
+@router.post("/oauth2callback")
+async def oauth2callback(code: str):
+    flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+    flow.redirect_uri = "http://localhost:5173/calendar/oauth2callback"
+    
     try:
-        response = supabase.table("appointments").select("*").execute()
-        return response.data
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
+        return {
+            "token": credentials.token,
+            "refresh_token": credentials.refresh_token,
+            "token_uri": credentials.token_uri,
+            "client_id": credentials.client_id,
+            "client_secret": credentials.client_secret,
+            "scopes": credentials.scopes
+        }
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch appointments: {str(e)}"
-        )
+        raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{appointment_id}", response_model=Appointment)
-async def get_appointment(appointment_id: int):
+@router.get("/events")
+async def list_events(credentials_json: str, time_min: Optional[str] = None, time_max: Optional[str] = None):
     try:
-        response = supabase.table("appointments").select("*").eq("id", appointment_id).execute()
-        if not response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Appointment with ID {appointment_id} not found"
-            )
-        return response.data[0]
+        credentials_dict = json.loads(credentials_json)
+        service = get_calendar_service(credentials_dict)
+        
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=100,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        return events_result.get('items', [])
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch appointment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/", response_model=Appointment, status_code=status.HTTP_201_CREATED)
-async def create_appointment(appointment: AppointmentCreate):
+@router.post("/events")
+async def create_event(event: EventCreate, credentials_json: str):
     try:
-        # Check if client exists
-        client_check = supabase.table("clients").select("id").eq("id", appointment.client_id).execute()
-        if not client_check.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Client with ID {appointment.client_id} not found"
-            )
+        credentials_dict = json.loads(credentials_json)
+        service = get_calendar_service(credentials_dict)
         
-        response = supabase.table("appointments").insert(appointment.dict()).execute()
-        return response.data[0]
+        event_body = {
+            'summary': event.summary,
+            'description': event.description,
+            'location': event.location,
+            'start': {
+                'dateTime': event.start_datetime.isoformat(),
+                'timeZone': 'UTC',
+            },
+            'end': {
+                'dateTime': event.end_datetime.isoformat(),
+                'timeZone': 'UTC',
+            },
+        }
+        
+        if event.attendees:
+            event_body['attendees'] = [{'email': email} for email in event.attendees]
+        if event.color_id:
+            event_body['colorId'] = event.color_id
+        if event.reminders:
+            event_body['reminders'] = event.reminders
+            
+        created_event = service.events().insert(
+            calendarId='primary',
+            body=event_body,
+            sendUpdates='all'
+        ).execute()
+        
+        return created_event
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create appointment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/{appointment_id}", response_model=Appointment)
-async def update_appointment(appointment_id: int, appointment: AppointmentUpdate):
+@router.put("/events/{event_id}")
+async def update_event(event_id: str, event: EventUpdate, credentials_json: str):
     try:
-        # First check if appointment exists
-        check_response = supabase.table("appointments").select("*").eq("id", appointment_id).execute()
-        if not check_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Appointment with ID {appointment_id} not found"
-            )
+        credentials_dict = json.loads(credentials_json)
+        service = get_calendar_service(credentials_dict)
         
-        # Filter out None values
-        update_data = {k: v for k, v in appointment.dict().items() if v is not None}
+        event_body = {
+            'summary': event.summary,
+            'description': event.description,
+            'location': event.location,
+            'start': {
+                'dateTime': event.start_datetime.isoformat(),
+                'timeZone': 'UTC',
+            },
+            'end': {
+                'dateTime': event.end_datetime.isoformat(),
+                'timeZone': 'UTC',
+            },
+        }
         
-        # If client_id is being updated, check if the client exists
-        if "client_id" in update_data:
-            client_check = supabase.table("clients").select("id").eq("id", update_data["client_id"]).execute()
-            if not client_check.data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Client with ID {update_data['client_id']} not found"
-                )
+        if event.attendees:
+            event_body['attendees'] = [{'email': email} for email in event.attendees]
+        if event.color_id:
+            event_body['colorId'] = event.color_id
+        if event.reminders:
+            event_body['reminders'] = event.reminders
+            
+        updated_event = service.events().update(
+            calendarId='primary',
+            eventId=event_id,
+            body=event_body,
+            sendUpdates='all'
+        ).execute()
         
-        # Update appointment
-        response = supabase.table("appointments").update(update_data).eq("id", appointment_id).execute()
-        return response.data[0]
+        return updated_event
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update appointment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_appointment(appointment_id: int):
+@router.delete("/events/{event_id}")
+async def delete_event(event_id: str, credentials_json: str):
     try:
-        # First check if appointment exists
-        check_response = supabase.table("appointments").select("*").eq("id", appointment_id).execute()
-        if not check_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Appointment with ID {appointment_id} not found"
-            )
+        credentials_dict = json.loads(credentials_json)
+        service = get_calendar_service(credentials_dict)
         
-        # Delete appointment
-        supabase.table("appointments").delete().eq("id", appointment_id).execute()
-        return None
+        service.events().delete(
+            calendarId='primary',
+            eventId=event_id,
+            sendUpdates='all'
+        ).execute()
+        
+        return {"message": "Event deleted successfully"}
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete appointment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/colors")
+async def get_calendar_colors(credentials_json: str):
+    try:
+        credentials_dict = json.loads(credentials_json)
+        service = get_calendar_service(credentials_dict)
+        
+        colors = service.colors().get().execute()
+        return colors
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

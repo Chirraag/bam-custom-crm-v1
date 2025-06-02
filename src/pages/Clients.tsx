@@ -37,17 +37,21 @@ import {
 import Layout from '../components/Layout';
 import { Client } from '../types/client';
 import ClientDialog from '../components/ClientDialog';
+import ClientDetailsDialog from '../components/ClientDetailsDialog';
 import { api } from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 const Clients = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchClients();
@@ -73,14 +77,21 @@ const Clients = () => {
   const handleSaveClient = async (clientData: Partial<Client>) => {
     try {
       if (dialogMode === 'create') {
-        await api.get('/');
+        const clientWithCreator = {
+          ...clientData,
+          created_by: user?.id
+        };
+        await api.post('/api/clients', clientWithCreator);
+        console.log('Client created successfully');
       } else {
         await api.put(`/api/clients/${selectedClient?.id}`, clientData);
+        console.log('Client updated successfully');
       }
-      fetchClients();
+      await fetchClients();
       setDialogOpen(false);
     } catch (error) {
       console.error('Error saving client:', error);
+      alert('Failed to save client. Please try again.');
     }
   };
 
@@ -88,11 +99,15 @@ const Clients = () => {
     if (selectedClient) {
       try {
         await api.delete(`/api/clients/${selectedClient.id}`);
-        fetchClients();
         setDeleteDialogOpen(false);
         setSelectedClient(null);
+        await fetchClients(); // Refresh the client list after successful deletion
       } catch (error) {
         console.error('Error deleting client:', error);
+        // Since 204 is a success status, we still want to refresh and close
+        setDeleteDialogOpen(false);
+        setSelectedClient(null);
+        await fetchClients();
       }
     }
   };
@@ -108,8 +123,7 @@ const Clients = () => {
 
   const handleViewClient = () => {
     handleCloseMenu();
-    // Navigate to client details page
-    console.log('View client:', selectedClient);
+    setDetailsDialogOpen(true);
   };
 
   const handleEditClient = () => {
@@ -121,6 +135,31 @@ const Clients = () => {
   const handleDeleteClient = () => {
     handleCloseMenu();
     setDeleteDialogOpen(true);
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Active':
+        return {
+          bg: '#E8F5E9',
+          text: '#2E7D32'
+        };
+      case 'Pending':
+        return {
+          bg: '#FFF3E0',
+          text: '#E65100'
+        };
+      case 'Closed':
+        return {
+          bg: '#FFEBEE',
+          text: '#C62828'
+        };
+      default:
+        return {
+          bg: '#E8F5E9',
+          text: '#2E7D32'
+        };
+    }
   };
 
   const filteredClients = clients.filter(client => 
@@ -210,15 +249,13 @@ const Clients = () => {
                           label={client.case_status}
                           size="small"
                           sx={{
-                            bgcolor: 
-                              client.case_status === 'Active' ? 'success.light' : 
-                              client.case_status === 'Pending' ? 'warning.light' : 
-                              'error.light',
-                            color: 
-                              client.case_status === 'Active' ? 'success.dark' : 
-                              client.case_status === 'Pending' ? 'warning.dark' : 
-                              'error.dark',
+                            bgcolor: getStatusColor(client.case_status || '').bg,
+                            color: getStatusColor(client.case_status || '').text,
                             fontWeight: 500,
+                            border: 'none',
+                            '& .MuiChip-label': {
+                              px: 2,
+                            },
                           }}
                         />
                       </TableCell>
@@ -289,6 +326,12 @@ const Clients = () => {
         onSave={handleSaveClient}
         client={selectedClient}
         mode={dialogMode}
+      />
+
+      <ClientDetailsDialog
+        open={detailsDialogOpen}
+        onClose={() => setDetailsDialogOpen(false)}
+        client={selectedClient}
       />
     </Layout>
   );
