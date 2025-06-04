@@ -39,7 +39,8 @@ import {
   Event as EventIcon,
   Today as TodayIcon,
   CalendarMonth,
-  Schedule
+  Schedule,
+  Logout as LogoutIcon
 } from '@mui/icons-material';
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -56,6 +57,7 @@ const Calendar = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<any | null>(null);
@@ -74,13 +76,59 @@ const Calendar = () => {
     attendees: [] as { email: string }[]
   });
 
+  // Check for existing authentication on component mount
+  useEffect(() => {
+    checkExistingAuth();
+  }, []);
+
+  const checkExistingAuth = async () => {
+    try {
+      setCheckingAuth(true);
+      
+      // Check for stored credentials
+      const storedCredentials = localStorage.getItem('google_calendar_credentials');
+      
+      if (storedCredentials) {
+        const credentials = JSON.parse(storedCredentials);
+        
+        // Check if token is still valid (not expired)
+        if (credentials.expiry && new Date(credentials.expiry) > new Date()) {
+          await calendarService.initClient();
+          calendarService.setToken(credentials.token);
+          setIsAuthenticated(true);
+          loadEvents();
+          setError(null);
+        } else {
+          // Token expired, remove from storage
+          localStorage.removeItem('google_calendar_credentials');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking existing auth:', error);
+      localStorage.removeItem('google_calendar_credentials');
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
+
   const login = useGoogleLogin({
     onSuccess: async (response) => {
       try {
         await calendarService.initClient();
         calendarService.setToken(response.access_token);
+        
+        // Store credentials with expiry time
+        const credentials = {
+          token: response.access_token,
+          expiry: new Date(Date.now() + (response.expires_in * 1000)).toISOString(),
+          scope: response.scope
+        };
+        
+        localStorage.setItem('google_calendar_credentials', JSON.stringify(credentials));
+        
         setIsAuthenticated(true);
         loadEvents();
+        setError(null);
       } catch (error) {
         console.error('Error during login:', error);
         setError('Failed to authenticate with Google Calendar');
@@ -92,6 +140,14 @@ const Calendar = () => {
     scope: 'https://www.googleapis.com/auth/calendar',
   });
 
+  const logout = () => {
+    localStorage.removeItem('google_calendar_credentials');
+    calendarService.setToken('');
+    setIsAuthenticated(false);
+    setEvents([]);
+    setError(null);
+  };
+
   const loadEvents = async () => {
     try {
       setLoading(true);
@@ -101,8 +157,16 @@ const Calendar = () => {
       setEvents(events || []);
       setError(null);
     } catch (error) {
-      setError('Failed to load calendar events');
       console.error('Load events error:', error);
+      
+      // If we get an auth error, clear stored credentials and force re-auth
+      if (error.message.includes('401') || error.message.includes('unauthorized')) {
+        localStorage.removeItem('google_calendar_credentials');
+        setIsAuthenticated(false);
+        setError('Authentication expired. Please reconnect your calendar.');
+      } else {
+        setError('Failed to load calendar events');
+      }
     } finally {
       setLoading(false);
     }
@@ -304,23 +368,42 @@ const Calendar = () => {
               </Box>
               
               {isAuthenticated && (
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => openEventDialog()}
-                  sx={{ 
-                    bgcolor: 'white',
-                    color: '#667eea',
-                    borderRadius: '12px',
-                    fontWeight: 600,
-                    ml: 2,
-                    '&:hover': {
-                      bgcolor: 'rgba(255,255,255,0.9)'
-                    }
-                  }}
-                >
-                  New Event
-                </Button>
+                <>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => openEventDialog()}
+                    sx={{ 
+                      bgcolor: 'white',
+                      color: '#667eea',
+                      borderRadius: '12px',
+                      fontWeight: 600,
+                      ml: 2,
+                      '&:hover': {
+                        bgcolor: 'rgba(255,255,255,0.9)'
+                      }
+                    }}
+                  >
+                    New Event
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    startIcon={<LogoutIcon />}
+                    onClick={logout}
+                    sx={{ 
+                      borderColor: 'rgba(255,255,255,0.3)',
+                      color: 'white',
+                      borderRadius: '12px',
+                      ml: 1,
+                      '&:hover': {
+                        borderColor: 'rgba(255,255,255,0.5)',
+                        backgroundColor: 'rgba(255,255,255,0.1)'
+                      }
+                    }}
+                  >
+                    Disconnect
+                  </Button>
+                </>
               )}
             </Box>
           </Box>
@@ -470,6 +553,22 @@ const Calendar = () => {
       </Card>
     );
   };
+
+  // Show loading state while checking existing auth
+  if (checkingAuth) {
+    return (
+      <Layout>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          minHeight: '70vh'
+        }}>
+          <CircularProgress />
+        </Box>
+      </Layout>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
