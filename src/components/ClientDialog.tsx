@@ -13,7 +13,15 @@ import {
   Box,
   Switch,
   FormControlLabel,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  IconButton,
+  Link,
+  Chip
 } from '@mui/material';
+import { Delete as DeleteIcon, RemoveRedEye as PreviewIcon } from '@mui/icons-material';
 import { Client } from '../types/client';
 import CustomFieldsDialog from './CustomFieldsDialog';
 import DocumentsDialog from './DocumentsDialog';
@@ -59,7 +67,28 @@ const ClientDialog = ({ open, onClose, onSave, client, mode }: ClientDialogProps
   const handleDocumentsSave = (documents: Record<string, string>) => {
     setFormData(prev => ({
       ...prev,
-      client_documents: documents
+      client_documents: {
+        ...(prev.client_documents || {}),
+        ...documents
+      }
+    }));
+  };
+
+  const handleDeleteCustomField = (fieldName: string) => {
+    const updatedFields = { ...formData.user_defined_fields };
+    delete updatedFields[fieldName];
+    setFormData(prev => ({
+      ...prev,
+      user_defined_fields: updatedFields
+    }));
+  };
+
+  const handleDeleteDocument = (docName: string) => {
+    const updatedDocs = { ...formData.client_documents };
+    delete updatedDocs[docName];
+    setFormData(prev => ({
+      ...prev,
+      client_documents: updatedDocs
     }));
   };
 
@@ -473,6 +502,87 @@ const ClientDialog = ({ open, onClose, onSave, client, mode }: ClientDialogProps
               </TextField>
             </Grid>
 
+            {/* Custom Fields */}
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle1" fontWeight={500} gutterBottom>
+                Custom Fields
+              </Typography>
+              {formData.user_defined_fields && Object.keys(formData.user_defined_fields).length > 0 ? (
+                <List>
+                  {Object.entries(formData.user_defined_fields).map(([name, value]) => (
+                    <ListItem key={name}>
+                      <ListItemText
+                        primary={name}
+                        secondary={value}
+                      />
+                      <ListItemSecondaryAction>
+                        <IconButton edge="end" onClick={() => handleDeleteCustomField(name)}>
+                          <DeleteIcon />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  ))}
+                </List>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No custom fields added
+                </Typography>
+              )}
+              <Button
+                variant="outlined"
+                onClick={() => setCustomFieldsOpen(true)}
+                sx={{ mt: 2 }}
+              >
+                Manage Custom Fields
+              </Button>
+            </Grid>
+
+            {/* Documents */}
+            {mode === 'edit' && (
+              <Grid item xs={12}>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle1" fontWeight={500} gutterBottom>
+                  Documents
+                </Typography>
+                {formData.client_documents && Object.keys(formData.client_documents).length > 0 ? (
+                  <List>
+                    {Object.entries(formData.client_documents).map(([name, url]) => (
+                      <ListItem key={name}>
+                        <ListItemText
+                          primary={name}
+                          secondary={
+                            <Link href={url} target="_blank" rel="noopener noreferrer">
+                              View Document
+                            </Link>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <IconButton onClick={() => window.open(url, '_blank')}>
+                            <PreviewIcon />
+                          </IconButton>
+                          <IconButton edge="end" onClick={() => handleDeleteDocument(name)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No documents uploaded
+                  </Typography>
+                )}
+                <Button
+                  variant="outlined"
+                  onClick={() => setDocumentsOpen(true)}
+                  sx={{ mt: 2 }}
+                >
+                  Manage Documents
+                </Button>
+              </Grid>
+            )}
+
             {/* Management */}
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }} />
@@ -499,31 +609,6 @@ const ClientDialog = ({ open, onClose, onSave, client, mode }: ClientDialogProps
                 label="Active Client"
               />
             </Grid>
-
-            {/* Additional Fields */}
-            <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button
-                  variant="outlined"
-                  onClick={() => setCustomFieldsOpen(true)}
-                >
-                  Custom Fields
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={() => setDocumentsOpen(true)}
-                  disabled={mode === 'create'}
-                >
-                  Documents
-                </Button>
-              </Box>
-              {mode === 'create' && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  Documents can be added after saving the client
-                </Typography>
-              )}
-            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -541,13 +626,15 @@ const ClientDialog = ({ open, onClose, onSave, client, mode }: ClientDialogProps
         onSave={handleCustomFieldsSave}
       />
 
-      <DocumentsDialog
-        open={documentsOpen}
-        onClose={() => setDocumentsOpen(false)}
-        documents={formData.client_documents || {}}
-        onSave={handleDocumentsSave}
-        clientId={formData.id as string}
-      />
+      {mode === 'edit' && (
+        <DocumentsDialog
+          open={documentsOpen}
+          onClose={() => setDocumentsOpen(false)}
+          documents={formData.client_documents || {}}
+          onSave={handleDocumentsSave}
+          clientId={formData.id as string}
+        />
+      )}
     </>
   );
 };
