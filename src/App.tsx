@@ -12,6 +12,8 @@ import Clients from './pages/Clients';
 import Calendar from './pages/Calendar';
 import Messaging from './pages/Messaging';
 import VoiceBot from './pages/VoiceBot';
+import Emails from './pages/Emails';
+
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
