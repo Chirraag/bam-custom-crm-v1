@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
 class ClientBase(BaseModel):
     first_name: str
     last_name: str
@@ -56,11 +57,14 @@ class ClientBase(BaseModel):
     user_defined_fields: Optional[Dict[str, str]] = {}
     client_documents: Optional[Dict[str, str]] = {}
 
+
 class ClientCreate(ClientBase):
     pass
 
+
 class ClientUpdate(ClientBase):
     pass
+
 
 @router.get("", response_model=List[dict])
 async def get_clients():
@@ -74,10 +78,12 @@ async def get_clients():
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"Failed to fetch clients: {str(e)}")
 
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_client(client: ClientCreate):
     try:
-        logger.info(f"Creating new client: {client.first_name} {client.last_name}")
+        logger.info(
+            f"Creating new client: {client.first_name} {client.last_name}")
 
         # Validate required fields
         if not client.first_name or not client.last_name:
@@ -98,13 +104,17 @@ async def create_client(client: ClientCreate):
         for field in date_fields:
             if client_data.get(field):
                 try:
-                    parsed_date = datetime.strptime(client_data[field], "%Y-%m-%d")
+                    parsed_date = datetime.strptime(client_data[field],
+                                                    "%Y-%m-%d")
                     client_data[field] = parsed_date.date().isoformat()
                 except ValueError:
-                    logger.error(f"Invalid date format for {field}: {client_data[field]}")
+                    logger.error(
+                        f"Invalid date format for {field}: {client_data[field]}"
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
+                        detail=
+                        f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
                     )
 
         response = supabase.table("clients").insert(client_data).execute()
@@ -118,11 +128,13 @@ async def create_client(client: ClientCreate):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"Failed to create client: {str(e)}")
 
+
 @router.get("/{client_id}", response_model=dict)
 async def get_client(client_id: Union[str, int]):
     try:
         logger.info(f"Fetching client with ID: {client_id}")
-        response = supabase.table("clients").select("*").eq("id", client_id).execute()
+        response = supabase.table("clients").select("*").eq(
+            "id", client_id).execute()
         if not response.data:
             logger.warning(f"Client with ID {client_id} not found")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
@@ -134,14 +146,18 @@ async def get_client(client_id: Union[str, int]):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"Failed to fetch client: {str(e)}")
 
+
 @router.put("/{client_id}")
 async def update_client(client_id: Union[str, int], client: ClientUpdate):
     try:
         logger.info(f"Updating client with ID: {client_id}")
+        logger.info(f"Client data: {client.dict()}")
         # First check if client exists
-        check_response = supabase.table("clients").select("*").eq("id", client_id).execute()
+        check_response = supabase.table("clients").select("*").eq(
+            "id", client_id).execute()
         if not check_response.data:
-            logger.warning(f"Client with ID {client_id} not found during update")
+            logger.warning(
+                f"Client with ID {client_id} not found during update")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f"Client with ID {client_id} not found")
 
@@ -154,16 +170,21 @@ async def update_client(client_id: Union[str, int], client: ClientUpdate):
         for field in date_fields:
             if client_data.get(field):
                 try:
-                    parsed_date = datetime.strptime(client_data[field], "%Y-%m-%d")
+                    parsed_date = datetime.strptime(client_data[field],
+                                                    "%Y-%m-%d")
                     client_data[field] = parsed_date.date().isoformat()
                 except ValueError:
-                    logger.error(f"Invalid date format for {field}: {client_data[field]}")
+                    logger.error(
+                        f"Invalid date format for {field}: {client_data[field]}"
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
+                        detail=
+                        f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
                     )
 
-        response = supabase.table("clients").update(client_data).eq("id", client_id).execute()
+        response = supabase.table("clients").update(client_data).eq(
+            "id", client_id).execute()
         logger.info(f"Successfully updated client with ID: {client_id}")
         return response.data[0]
     except Exception as e:
@@ -171,14 +192,17 @@ async def update_client(client_id: Union[str, int], client: ClientUpdate):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"Failed to update client: {str(e)}")
 
+
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client(client_id: Union[str, int]):
     try:
         logger.info(f"Attempting to delete client with ID: {client_id}")
         # First check if client exists
-        check_response = supabase.table("clients").select("*").eq("id", client_id).execute()
+        check_response = supabase.table("clients").select("*").eq(
+            "id", client_id).execute()
         if not check_response.data:
-            logger.warning(f"Client with ID {client_id} not found during deletion")
+            logger.warning(
+                f"Client with ID {client_id} not found during deletion")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f"Client with ID {client_id} not found")
 
@@ -186,11 +210,13 @@ async def delete_client(client_id: Union[str, int]):
         if check_response.data[0].get('client_documents'):
             try:
                 folder_name = f"client_{client_id}"
-                supabase.storage.from_('client-documents').remove([folder_name])
+                supabase.storage.from_('client-documents').remove(
+                    [folder_name])
             except Exception as e:
                 logger.warning(f"Failed to delete client documents: {str(e)}")
 
-        response = supabase.table("clients").delete().eq("id", client_id).execute()
+        response = supabase.table("clients").delete().eq("id",
+                                                         client_id).execute()
         logger.info(f"Successfully deleted client with ID: {client_id}")
         return None
     except Exception as e:
