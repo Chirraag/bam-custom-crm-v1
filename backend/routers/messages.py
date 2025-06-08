@@ -52,6 +52,24 @@ class SMSMessage(BaseModel):
     created_at: datetime
 
 
+@router.get("/test")
+async def test_messages_endpoint():
+    """Test endpoint to verify messages router is working"""
+    try:
+        return {
+            "status":
+            "Messages API is working",
+            "timestamp":
+            datetime.now().isoformat(),
+            "telnyx_configured":
+            bool(telnyx.api_key and TELNYX_MESSAGING_PROFILE_ID
+                 and TELNYX_PHONE_NUMBER)
+        }
+    except Exception as e:
+        logger.error(f"Test endpoint error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/client/{client_id}")
 async def get_client_messages(client_id: str):
     """Get all SMS messages for a specific client"""
@@ -150,21 +168,27 @@ async def send_sms(sms: SMSCreate):
             logger.info("Attempting to send SMS via Telnyx...")
             logger.info(f"From: {TELNYX_PHONE_NUMBER}")
             logger.info(f"To: {phone_number}")
+            logger.info(f"Message content (raw): {repr(sms.content)}"
+                        )  # Show raw content with escape chars
             logger.info(f"Messaging Profile ID: {TELNYX_MESSAGING_PROFILE_ID}")
+
+            # Preserve formatting: ensure newlines and emojis are maintained
+            formatted_content = sms.content.strip(
+            )  # Remove leading/trailing whitespace but preserve internal formatting
 
             telnyx_response = telnyx.Message.create(
                 from_=TELNYX_PHONE_NUMBER,
                 to=phone_number,
-                text=sms.content,
+                text=formatted_content,  # Use formatted content
                 messaging_profile_id=TELNYX_MESSAGING_PROFILE_ID)
 
             logger.info(f"Telnyx response: {telnyx_response}")
 
-            # Store message in database
+            # Store message in database with original formatting preserved
             message_data = {
                 "client_id": sms.client_id,
                 "phone_number": phone_number,
-                "content": sms.content,
+                "content": formatted_content,  # Store formatted content
                 "direction": "outbound",
                 "status": "sent",
                 "telnyx_message_id": telnyx_response.id,
@@ -185,10 +209,13 @@ async def send_sms(sms: SMSCreate):
 
             # Fallback: Try sending with alpha sender
             try:
+                formatted_content = sms.content.strip(
+                )  # Preserve formatting for fallback too
+
                 telnyx_response_alpha = telnyx.Message.create(
                     from_="TESTCRM",  # Alpha sender
                     to=phone_number,
-                    text=sms.content,
+                    text=formatted_content,  # Use formatted content
                     messaging_profile_id=TELNYX_MESSAGING_PROFILE_ID)
 
                 logger.info(f"Alpha sender success: {telnyx_response_alpha}")
@@ -197,7 +224,7 @@ async def send_sms(sms: SMSCreate):
                 message_data = {
                     "client_id": sms.client_id,
                     "phone_number": phone_number,
-                    "content": sms.content,
+                    "content": formatted_content,  # Store formatted content
                     "direction": "outbound",
                     "status": "sent",
                     "telnyx_message_id": telnyx_response_alpha.id,
@@ -218,7 +245,8 @@ async def send_sms(sms: SMSCreate):
                 message_data = {
                     "client_id": sms.client_id,
                     "phone_number": phone_number,
-                    "content": sms.content,
+                    "content":
+                    sms.content,  # Store original content even if failed
                     "direction": "outbound",
                     "status": "failed",
                     "created_at": datetime.utcnow().isoformat()
@@ -277,11 +305,11 @@ async def telnyx_webhook(request: Request):
             if client_response.data:
                 client_id = client_response.data[0]["id"]
 
-                # Store incoming message
+                # Store incoming message with preserved formatting
                 message_data = {
                     "client_id": client_id,
                     "phone_number": from_number,
-                    "content": message_content,
+                    "content": message_content,  # Preserve original formatting
                     "direction": "inbound",
                     "status": "received",
                     "telnyx_message_id": telnyx_message_id,
@@ -310,7 +338,7 @@ async def telnyx_webhook(request: Request):
         elif event_type in [
                 "message.sent", "message.delivered", "message.failed"
         ]:
-            # Handle message status updates - CORRECTED: Access payload data
+            # Handle message status updates
             payload_data = data.get("payload", {})
             telnyx_message_id = payload_data.get("id")
             new_status = event_type.split(".")[1]  # sent, delivered, or failed
