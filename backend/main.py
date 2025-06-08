@@ -5,6 +5,7 @@ from typing import List, Optional
 import os
 from datetime import datetime
 import logging
+from routers import clients, calendar, messages
 
 # Configure root logger
 logging.basicConfig(level=logging.INFO,

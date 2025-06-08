@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from typing import List, Optional, Union, Dict
+from pydantic import BaseModel, ConfigDict
+from typing import List, Optional, Union, Dict, Any
 from datetime import datetime
 from database import get_db, supabase
 import logging
@@ -14,6 +14,9 @@ router = APIRouter()
 
 
 class ClientBase(BaseModel):
+    # Allow extra fields to be included in the model
+    model_config = ConfigDict(extra="allow")
+
     first_name: str
     last_name: str
     middle_name: Optional[str] = None
@@ -63,7 +66,60 @@ class ClientCreate(ClientBase):
 
 
 class ClientUpdate(ClientBase):
-    pass
+    # For updates, make all fields optional including first_name and last_name
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+
+def process_date_fields(client_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Process date fields to ensure they are in ISO format"""
+    date_fields = ["birth_date", "case_date", "date_of_injury"]
+
+    for field in date_fields:
+        if client_data.get(field):
+            try:
+                # Handle different date formats
+                date_value = client_data[field]
+                if isinstance(date_value, str):
+                    # Try different date formats
+                    date_formats = [
+                        "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y",
+                        "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"
+                    ]
+                    parsed_date = None
+
+                    for date_format in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(
+                                date_value.split('T')[0]
+                                if 'T' in date_value else date_value,
+                                date_format.split('T')[0]
+                                if 'T' in date_format else date_format)
+                            break
+                        except ValueError:
+                            continue
+
+                    if parsed_date:
+                        client_data[field] = parsed_date.date().isoformat()
+                    else:
+                        logger.error(
+                            f"Invalid date format for {field}: {client_data[field]}"
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=
+                            f"Invalid date format for {field}. Expected formats: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY"
+                        )
+            except ValueError as ve:
+                logger.error(
+                    f"Invalid date format for {field}: {client_data[field]}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=
+                    f"Invalid date format for {field}. Expected formats: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY"
+                )
+
+    return client_data
 
 
 @router.get("", response_model=List[dict])
@@ -94,28 +150,18 @@ async def create_client(client: ClientCreate):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                                 detail="Created by is required")
 
-        # Convert client to dict and add timestamps
-        client_data = client.dict()
+        # Convert client to dict (this now includes extra fields thanks to extra="allow")
+        client_data = client.model_dump()
+
+        # Add timestamps
         client_data["created_at"] = datetime.utcnow().isoformat()
         client_data["updated_at"] = client_data["created_at"]
 
-        # Ensure dates are in ISO format string
-        date_fields = ["birth_date", "case_date", "date_of_injury"]
-        for field in date_fields:
-            if client_data.get(field):
-                try:
-                    parsed_date = datetime.strptime(client_data[field],
-                                                    "%Y-%m-%d")
-                    client_data[field] = parsed_date.date().isoformat()
-                except ValueError:
-                    logger.error(
-                        f"Invalid date format for {field}: {client_data[field]}"
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=
-                        f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
-                    )
+        # Process date fields
+        client_data = process_date_fields(client_data)
+
+        # Remove None values to avoid overwriting database defaults
+        client_data = {k: v for k, v in client_data.items() if v is not None}
 
         response = supabase.table("clients").insert(client_data).execute()
         new_client = response.data[0]
@@ -141,6 +187,8 @@ async def get_client(client_id: Union[str, int]):
                                 detail=f"Client with ID {client_id} not found")
         logger.info(f"Successfully retrieved client with ID: {client_id}")
         return response.data[0]
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Failed to fetch client {client_id}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -151,7 +199,7 @@ async def get_client(client_id: Union[str, int]):
 async def update_client(client_id: Union[str, int], client: ClientUpdate):
     try:
         logger.info(f"Updating client with ID: {client_id}")
-        logger.info(f"Client data: {client.dict()}")
+
         # First check if client exists
         check_response = supabase.table("clients").select("*").eq(
             "id", client_id).execute()
@@ -161,32 +209,26 @@ async def update_client(client_id: Union[str, int], client: ClientUpdate):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f"Client with ID {client_id} not found")
 
-        # Update the client
-        client_data = client.dict(exclude_unset=True)
+        # Get client data including extra fields
+        client_data = client.model_dump(exclude_unset=True)
+
+        # Add updated timestamp
         client_data["updated_at"] = datetime.utcnow().isoformat()
 
-        # Handle date fields
-        date_fields = ["birth_date", "case_date", "date_of_injury"]
-        for field in date_fields:
-            if client_data.get(field):
-                try:
-                    parsed_date = datetime.strptime(client_data[field],
-                                                    "%Y-%m-%d")
-                    client_data[field] = parsed_date.date().isoformat()
-                except ValueError:
-                    logger.error(
-                        f"Invalid date format for {field}: {client_data[field]}"
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=
-                        f"Invalid date format for {field}. Expected format: YYYY-MM-DD"
-                    )
+        # Process date fields
+        client_data = process_date_fields(client_data)
+
+        # Remove None values to avoid overwriting existing data with None
+        client_data = {k: v for k, v in client_data.items() if v is not None}
+
+        logger.info(f"Update data: {client_data}")
 
         response = supabase.table("clients").update(client_data).eq(
             "id", client_id).execute()
         logger.info(f"Successfully updated client with ID: {client_id}")
         return response.data[0]
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Failed to update client {client_id}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -197,6 +239,7 @@ async def update_client(client_id: Union[str, int], client: ClientUpdate):
 async def delete_client(client_id: Union[str, int]):
     try:
         logger.info(f"Attempting to delete client with ID: {client_id}")
+
         # First check if client exists
         check_response = supabase.table("clients").select("*").eq(
             "id", client_id).execute()
@@ -212,6 +255,8 @@ async def delete_client(client_id: Union[str, int]):
                 folder_name = f"client_{client_id}"
                 supabase.storage.from_('client-documents').remove(
                     [folder_name])
+                logger.info(
+                    f"Deleted client documents for client ID: {client_id}")
             except Exception as e:
                 logger.warning(f"Failed to delete client documents: {str(e)}")
 
@@ -219,7 +264,34 @@ async def delete_client(client_id: Union[str, int]):
                                                          client_id).execute()
         logger.info(f"Successfully deleted client with ID: {client_id}")
         return None
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error(f"Failed to delete client {client_id}: {str(e)}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=f"Failed to delete client: {str(e)}")
+
+
+# Optional: Add an endpoint to get all possible fields for a client
+@router.get("/schema/fields")
+async def get_client_fields():
+    """Get all possible fields for client records by querying the database schema"""
+    try:
+        # This is a sample query - adjust based on your database system
+        # For PostgreSQL/Supabase, you might query information_schema
+        logger.info("Fetching client schema fields")
+
+        # Get a sample client to see all available fields
+        response = supabase.table("clients").select("*").limit(1).execute()
+        if response.data:
+            available_fields = list(response.data[0].keys())
+            return {"available_fields": available_fields}
+        else:
+            # Return the known fields from the model
+            known_fields = list(ClientBase.model_fields.keys())
+            return {"available_fields": known_fields}
+
+    except Exception as e:
+        logger.error(f"Failed to fetch client fields: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail=f"Failed to fetch client fields: {str(e)}")

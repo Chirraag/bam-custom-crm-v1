@@ -1,0 +1,25 @@
+modules = ["python-3.12"]
+run = "uvicorn main:app --host 0.0.0.0 --port 8000"
+
+[nix]
+channel = "stable-24_05"
+packages = ["python312Packages.uvicorn"]
+
+[deployment]
+run = ["sh", "-c", ""]
+
+[[ports]]
+localPort = 8000
+externalPort = 80
+
+[workflows]
+runButton = "Run Backend Server"
+
+[[workflows.workflow]]
+name = "Run Backend Server"
+author = 37094576
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000"
