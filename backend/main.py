@@ -5,7 +5,10 @@ from typing import List, Optional
 import os
 from datetime import datetime
 import logging
-from routers import clients, calendar, messages
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure root logger
 logging.basicConfig(level=logging.INFO,
