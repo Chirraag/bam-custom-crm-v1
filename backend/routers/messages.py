@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
@@ -38,18 +38,54 @@ except Exception as e:
 class SMSCreate(BaseModel):
     client_id: str
     content: str
-    phone_number: Optional[str] = None
+    phone_number: Optional[str] = None  # Override client's phone
+    from_phone_number: Optional[str] = None  # Operator's phone number
 
 
 class SMSMessage(BaseModel):
     id: str
     client_id: str
-    phone_number: str
+    to_number: str
+    from_number: str
     content: str
     direction: str
     status: str
     telnyx_message_id: Optional[str] = None
+    user_id: Optional[str] = None
     created_at: datetime
+
+
+def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+    """Extract user ID from the Authorization header and get user details"""
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+
+    # Extract user ID from Bearer token (format: "Bearer user_id")
+    try:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0] == "Bearer":
+            user_id = parts[1]
+
+            # Get user details including phone number
+            user_response = supabase.table("crm_users").select(
+                "id, email, name, phone_number"
+            ).eq("id", user_id).execute()
+
+            if user_response.data:
+                return user_response.data[0]
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid user"
+                )
+    except:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token"
+        )
 
 
 @router.get("/test")
@@ -71,10 +107,28 @@ async def test_messages_endpoint():
 
 
 @router.get("/client/{client_id}")
-async def get_client_messages(client_id: str):
-    """Get all SMS messages for a specific client"""
+async def get_client_messages(
+    client_id: str, 
+    authorization: Optional[str] = Header(None)
+):
+    """Get SMS messages for a specific client - filtered by operator's phone number"""
     try:
         logger.info(f"Fetching messages for client: {client_id}")
+
+        # Get current user
+        user = get_current_user(authorization)
+        user_id = user['id']
+        user_phone = user.get('phone_number')
+
+        if not user_phone:
+            logger.warning(f"User {user_id} has no phone number assigned")
+            return {
+                "client_id": client_id,
+                "client_phone": None,
+                "messages": []
+            }
+
+        logger.info(f"User ID: {user_id}, Phone: {user_phone}")
 
         # First verify client exists
         client_response = supabase.table("clients").select(
@@ -86,12 +140,17 @@ async def get_client_messages(client_id: str):
 
         logger.info(f"Client found: {client_response.data[0]}")
 
-        # Get all messages for this client
+        # Get messages for this client where:
+        # 1. Outbound: from_number matches operator's phone
+        # 2. Inbound: to_number matches operator's phone
         messages_response = supabase.table("messages").select("*").eq(
-            "client_id", client_id).order("created_at").execute()
+            "client_id", client_id
+        ).or_(
+            f"from_number.eq.{user_phone},to_number.eq.{user_phone}"
+        ).order("created_at").execute()
 
         logger.info(
-            f"Found {len(messages_response.data)} messages for client {client_id}"
+            f"Found {len(messages_response.data)} messages for client {client_id} and operator phone {user_phone}"
         )
 
         return {
@@ -109,11 +168,28 @@ async def get_client_messages(client_id: str):
 
 
 @router.post("/send")
-async def send_sms(sms: SMSCreate):
+async def send_sms(
+    sms: SMSCreate,
+    authorization: Optional[str] = Header(None)
+):
     """Send SMS to a client"""
     try:
         logger.info(f"Attempting to send SMS to client: {sms.client_id}")
         logger.info(f"Message content: {sms.content[:50]}...")
+
+        # Get current user
+        user = get_current_user(authorization)
+        user_id = user['id']
+        user_phone = user.get('phone_number')
+
+        if not user_phone and not sms.from_phone_number:
+            logger.error(f"User {user_id} has no phone number assigned")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Your account does not have a phone number assigned. Please contact the administrator."
+            )
+
+        logger.info(f"User ID: {user_id}, Phone: {user_phone}")
 
         # Validate Telnyx configuration
         if not telnyx.api_key:
@@ -153,21 +229,25 @@ async def send_sms(sms: SMSCreate):
         )
 
         # Use provided phone number or client's primary phone
-        phone_number = sms.phone_number or client.get("primary_phone")
-        if not phone_number:
+        to_phone_number = sms.phone_number or client.get("primary_phone")
+        if not to_phone_number:
             logger.warning(
                 f"No phone number available for client {sms.client_id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No phone number available for this client")
 
-        logger.info(f"Using phone number: {phone_number}")
+        # Determine the "from" phone number - prioritize operator's phone
+        from_number = user_phone if user_phone else (sms.from_phone_number if sms.from_phone_number else TELNYX_PHONE_NUMBER)
+
+        logger.info(f"To number: {to_phone_number}")
+        logger.info(f"From number: {from_number}")
 
         # Send SMS via Telnyx
         try:
             logger.info("Attempting to send SMS via Telnyx...")
-            logger.info(f"From: {TELNYX_PHONE_NUMBER}")
-            logger.info(f"To: {phone_number}")
+            logger.info(f"From: {from_number}")
+            logger.info(f"To: {to_phone_number}")
             logger.info(f"Message content (raw): {repr(sms.content)}"
                         )  # Show raw content with escape chars
             logger.info(f"Messaging Profile ID: {TELNYX_MESSAGING_PROFILE_ID}")
@@ -177,21 +257,23 @@ async def send_sms(sms: SMSCreate):
             )  # Remove leading/trailing whitespace but preserve internal formatting
 
             telnyx_response = telnyx.Message.create(
-                from_=TELNYX_PHONE_NUMBER,
-                to=phone_number,
+                from_=from_number,
+                to=to_phone_number,
                 text=formatted_content,  # Use formatted content
                 messaging_profile_id=TELNYX_MESSAGING_PROFILE_ID)
 
             logger.info(f"Telnyx response: {telnyx_response}")
 
-            # Store message in database with original formatting preserved
+            # Store message in database with proper to/from numbers
             message_data = {
                 "client_id": sms.client_id,
-                "phone_number": phone_number,
+                "to_number": to_phone_number,
+                "from_number": from_number,
                 "content": formatted_content,  # Store formatted content
                 "direction": "outbound",
                 "status": "sent",
                 "telnyx_message_id": telnyx_response.id,
+                "user_id": user_id,  # Store the operator who sent this message
                 "created_at": datetime.utcnow().isoformat()
             }
 
@@ -205,6 +287,45 @@ async def send_sms(sms: SMSCreate):
         except Exception as telnyx_error:
             logger.error(
                 f"Telnyx API error with phone number: {str(telnyx_error)}")
+
+            # If using operator's phone failed, try with default TELNYX_PHONE_NUMBER
+            if from_number != TELNYX_PHONE_NUMBER:
+                logger.info(f"Attempting fallback with default phone number {TELNYX_PHONE_NUMBER}...")
+                try:
+                    formatted_content = sms.content.strip()
+
+                    telnyx_response_fallback = telnyx.Message.create(
+                        from_=TELNYX_PHONE_NUMBER,
+                        to=to_phone_number,
+                        text=formatted_content,
+                        messaging_profile_id=TELNYX_MESSAGING_PROFILE_ID)
+
+                    logger.info(f"Fallback success: {telnyx_response_fallback}")
+
+                    # Store successful message
+                    message_data = {
+                        "client_id": sms.client_id,
+                        "to_number": to_phone_number,
+                        "from_number": TELNYX_PHONE_NUMBER,
+                        "content": formatted_content,
+                        "direction": "outbound",
+                        "status": "sent",
+                        "telnyx_message_id": telnyx_response_fallback.id,
+                        "user_id": user_id,
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+
+                    logger.info("Storing fallback message in database...")
+                    db_response = supabase.table("messages").insert(
+                        message_data).execute()
+                    logger.info("Fallback message stored successfully")
+
+                    return db_response.data[0]
+
+                except Exception as fallback_error:
+                    logger.error(f"Fallback also failed: {str(fallback_error)}")
+
+            # Try alpha sender as last resort
             logger.info("Attempting fallback with alpha sender 'TESTCRM'...")
 
             # Fallback: Try sending with alpha sender
@@ -214,7 +335,7 @@ async def send_sms(sms: SMSCreate):
 
                 telnyx_response_alpha = telnyx.Message.create(
                     from_="TESTCRM",  # Alpha sender
-                    to=phone_number,
+                    to=to_phone_number,
                     text=formatted_content,  # Use formatted content
                     messaging_profile_id=TELNYX_MESSAGING_PROFILE_ID)
 
@@ -223,11 +344,13 @@ async def send_sms(sms: SMSCreate):
                 # Store successful message with alpha sender
                 message_data = {
                     "client_id": sms.client_id,
-                    "phone_number": phone_number,
+                    "to_number": to_phone_number,
+                    "from_number": "TESTCRM",
                     "content": formatted_content,  # Store formatted content
                     "direction": "outbound",
                     "status": "sent",
                     "telnyx_message_id": telnyx_response_alpha.id,
+                    "user_id": user_id,
                     "created_at": datetime.utcnow().isoformat()
                 }
 
@@ -244,11 +367,13 @@ async def send_sms(sms: SMSCreate):
                 # Both phone number and alpha sender failed - store as failed
                 message_data = {
                     "client_id": sms.client_id,
-                    "phone_number": phone_number,
+                    "to_number": to_phone_number,
+                    "from_number": from_number,
                     "content":
                     sms.content,  # Store original content even if failed
                     "direction": "outbound",
                     "status": "failed",
+                    "user_id": user_id,
                     "created_at": datetime.utcnow().isoformat()
                 }
 
@@ -305,19 +430,21 @@ async def telnyx_webhook(request: Request):
             if client_response.data:
                 client_id = client_response.data[0]["id"]
 
-                # Store incoming message with preserved formatting
+                # Store incoming message with proper to/from numbers
                 message_data = {
                     "client_id": client_id,
-                    "phone_number": from_number,
+                    "to_number": to_number,  # The operator's phone number
+                    "from_number": from_number,  # The client's phone number
                     "content": message_content,  # Preserve original formatting
                     "direction": "inbound",
                     "status": "received",
                     "telnyx_message_id": telnyx_message_id,
+                    "user_id": None,  # No user_id for inbound messages
                     "created_at": datetime.utcnow().isoformat()
                 }
 
                 supabase.table("messages").insert(message_data).execute()
-                logger.info(f"Stored incoming message from client {client_id}")
+                logger.info(f"Stored incoming message from client {client_id} to {to_number}")
             else:
                 logger.warning(
                     f"Received SMS from unknown number: {from_number}")
@@ -325,11 +452,13 @@ async def telnyx_webhook(request: Request):
                 # Optional: Store message from unknown sender
                 message_data = {
                     "client_id": None,  # or create a special "unknown" client
-                    "phone_number": from_number,
+                    "to_number": to_number,
+                    "from_number": from_number,
                     "content": message_content,
                     "direction": "inbound",
                     "status": "received",
                     "telnyx_message_id": telnyx_message_id,
+                    "user_id": None,
                     "created_at": datetime.utcnow().isoformat()
                 }
                 # Uncomment if you want to store unknown messages:
