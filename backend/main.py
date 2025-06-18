@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 # Import routers
-from routers import clients, calendar, messages
+from routers import clients, calendar, messages, notes
 
 app = FastAPI(title="Law Firm CRM API")
 
@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
+app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 
 
 @app.get("/")
