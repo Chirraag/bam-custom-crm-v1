@@ -98,6 +98,7 @@ def check_inbox():
                                 break
                     else:
                         body = msg.get_payload(decode=True).decode(errors="ignore")
+                        raw = body
                     mail_message = EmailReplyParser(languages=["en"]).parse_reply(text=body)
                     body = clean(mail_message)
 
@@ -136,8 +137,8 @@ def check_inbox():
                         from_address=sender,
                         to_address=[EMAIL_USERNAME],
                         subject=subject,
-                        raw_body=body,
-                        parsed_body=mail_message,
+                        raw_body=raw,
+                        parsed_body=body,
                         received_at=received_dt.isoformat() if received_dt else None,
                     )
                     email_data = record.model_dump()
