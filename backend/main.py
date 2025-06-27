@@ -6,6 +6,9 @@ import os
 from datetime import datetime
 import logging
 from dotenv import load_dotenv
+from helper.email_reciever import check_inbox 
+import time
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +22,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 # Import routers
-from routers import clients, calendar, messages, notes
+from routers import clients, calendar, messages, notes, mail
 
 app = FastAPI(title="Law Firm CRM API")
 
@@ -38,6 +41,7 @@ app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
+app.include_router(mail.router, prefix="/api/mail", tags=["mail"])
 
 
 @app.get("/")
@@ -60,3 +64,15 @@ if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI application")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+def start_polling():
+    while True:
+        check_inbox() 
+        time.sleep(60)  # Poll every 60 seconds
+
+@app.on_event("startup")
+def startup_event():
+    print("🚀 Starting email poller thread")
+    load_dotenv()
+    threading.Thread(target=start_polling, daemon=True).start()
