@@ -31,10 +31,15 @@ class EmailBase(BaseModel):
     parsed_body : str
     received_at : Optional[str] = None
     sent_at : Optional[str] = None
+    attachments : Optional[List[Dict[str, Union[str, Any]]]] = None
 
 
 class EmailCreate(EmailBase):
     pass
+
+def get_current_time_formatted():
+    dt = datetime.now().astimezone()
+    return dt.strftime('%Y-%m-%d %H:%M:%S %z')[:-2] + ':' + dt.strftime('%Y-%m-%d %H:%M:%S %z')[-2:]
 
 
 @router.get("/{client_id}", response_model=List[dict])
@@ -64,14 +69,14 @@ async def send_mail(email:EmailBase):
         email_data = email.model_dump()
         logger.info(f"Mail data before processing: {email_data}")
         # Add timestamps
-        email_data["sent_at"] = datetime.now().isoformat()
-        email_data["sent_at"] = email_data["sent_at"].replace("T", " ").replace("Z", "").split(".")[0]+"+5:30"
+        email_data["sent_at"] = get_current_time_formatted()
+        # email_data["sent_at"] = email_data["sent_at"].replace("T", " ").replace("Z", "").split(".")[0]+"+5:30"
         logger.info(email_data["sent_at"])
         email_data["from_address"] = EMAIL_USERNAME
 
         # Remove None values to avoid overwriting database defaults
         email_data = {k: v for k, v in email_data.items() if v is not None}
-        [success,message_id] = EmailSender.send_email(email.to_address[0],email.subject,email.parsed_body,email.in_reply_to,email.subject)
+        [success,message_id] = EmailSender.send_email(email.to_address[0],email.subject,email.parsed_body,email.in_reply_to,email.subject,email.attachments)
         email_data["message_id"] = message_id
         email_data["direction"] = "outgoing"
         if not email_data['thread_id']:
